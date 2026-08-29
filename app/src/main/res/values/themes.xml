@@ -1,0 +1,3 @@
+<resources>
+    <style name="Theme.AIVideoStudio" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>
