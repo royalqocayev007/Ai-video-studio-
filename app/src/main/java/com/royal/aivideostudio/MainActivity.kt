@@ -54,7 +54,15 @@ fun AppRoot(createTts: ((Boolean) -> Unit) -> TtsHelper) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    var apiKey by remember { mutableStateOf("") }
+    // Telefonun öz yaddaşında (SharedPreferences) saxlayırıq ki, tətbiqi
+    // bağlayanda API açarı silinməsin. Qeyd: bu, sadə mətn şəklində
+    // saxlanılır — telefon başqasının əlinə keçərsə görünə bilər, amma
+    // Android hər tətbiqi öz "qutusunda" saxladığı üçün başqa tətbiqlər
+    // bunu oxuya bilmir.
+    val prefs = remember {
+        context.getSharedPreferences("ai_video_studio_prefs", android.content.Context.MODE_PRIVATE)
+    }
+    var apiKey by remember { mutableStateOf(prefs.getString("gemini_api_key", "") ?: "") }
     var showKey by remember { mutableStateOf(false) }
     var language by remember { mutableStateOf("Azərbaycan") }
     var aspect by remember { mutableStateOf("16:9 (YouTube)") }
@@ -85,7 +93,10 @@ fun AppRoot(createTts: ((Boolean) -> Unit) -> TtsHelper) {
         Spacer(Modifier.height(8.dp))
         OutlinedTextField(
             value = apiKey,
-            onValueChange = { apiKey = it },
+            onValueChange = { newValue ->
+                apiKey = newValue
+                prefs.edit().putString("gemini_api_key", newValue).apply()
+            },
             label = { Text("🔑 Gemini API Key") },
             singleLine = true,
             visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
