@@ -22,3 +22,41 @@ data class SceneRaw(
     val duration_sec: Int,
     val subtitle_text: String
 )
+
+/**
+ * Vizual üslub seçimləri.
+ *
+ * `promptModifier` şəkil generasiyası zamanı Gemini-nin verdiyi
+ * `visual_prompt`-un sonuna əlavə olunur — beləliklə eyni səhnə
+ * məzmunu fərqli üslublarda göstərilə bilər, üslub dəyişəndə
+ * ssenarini yenidən yaratmağa ehtiyac qalmır.
+ */
+enum class VideoStyle(val displayName: String, val promptModifier: String) {
+    CINEMATIC(
+        "Kinematik",
+        "cinematic, dramatic lighting, film still, wide shot, movie scene"
+    ),
+    CARTOON(
+        "Cizgi film",
+        "cartoon style, animated illustration, colorful, vector art, flat shading"
+    ),
+    REALISTIC(
+        "Realistik foto",
+        "photorealistic, high detail, DSLR photo, natural lighting, sharp focus"
+    ),
+    ANIMATION_3D(
+        "3D animasiya",
+        "3D rendered, CGI, Pixar style animation, octane render, soft studio lighting"
+    ),
+    MINIMALIST(
+        "Minimalist",
+        "minimalist flat design, simple shapes, clean background, vector, negative space"
+    );
+
+    companion object {
+        val displayNames = entries.map { it.displayName }
+
+        fun fromDisplayName(name: String): VideoStyle =
+            entries.find { it.displayName == name } ?: CINEMATIC
+    }
+}

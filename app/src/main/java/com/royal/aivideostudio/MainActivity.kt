@@ -5,11 +5,13 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
@@ -56,6 +58,8 @@ fun AppRoot(createTts: ((Boolean) -> Unit) -> TtsHelper) {
     var showKey by remember { mutableStateOf(false) }
     var language by remember { mutableStateOf("Azərbaycan") }
     var aspect by remember { mutableStateOf("16:9 (YouTube)") }
+    var durationText by remember { mutableStateOf("30") }
+    var style by remember { mutableStateOf(VideoStyle.CINEMATIC) }
     var idea by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
     var infoMsg by remember { mutableStateOf<String?>(null) }
@@ -105,6 +109,23 @@ fun AppRoot(createTts: ((Boolean) -> Unit) -> TtsHelper) {
             aspect
         ) { aspect = it }
 
+        Spacer(Modifier.height(8.dp))
+        OutlinedTextField(
+            value = durationText,
+            onValueChange = { new -> if (new.length <= 4 && new.all { it.isDigit() }) durationText = new },
+            label = { Text("⏱️ Video Uzunluğu (saniyə)") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Spacer(Modifier.height(8.dp))
+        DropdownSelector(
+            "🎨 Vizual Üslub",
+            VideoStyle.displayNames,
+            style.displayName
+        ) { selected -> style = VideoStyle.fromDisplayName(selected) }
+
         Spacer(Modifier.height(16.dp))
         HorizontalDivider()
         Spacer(Modifier.height(16.dp))
@@ -125,6 +146,7 @@ fun AppRoot(createTts: ((Boolean) -> Unit) -> TtsHelper) {
         Button(
             onClick = {
                 infoMsg = null
+                val durationInt = durationText.toIntOrNull()
                 when {
                     apiKey.isBlank() -> {
                         infoMsg = "Zəhmət olmasa Gemini API açarını daxil edin!"
@@ -134,17 +156,22 @@ fun AppRoot(createTts: ((Boolean) -> Unit) -> TtsHelper) {
                         infoMsg = "Zəhmət olmasa video ideyasını yazın!"
                         isError = true
                     }
+                    durationInt == null || durationInt <= 0 -> {
+                        infoMsg = "Video uzunluğunu düzgün saniyə ədədi kimi yazın (məs: 30)."
+                        isError = true
+                    }
                     else -> {
                         isLoading = true
                         scope.launch {
                             val result = withContext(Dispatchers.IO) {
-                                GeminiApi.generateScript(idea, apiKey)
+                                GeminiApi.generateScript(idea, apiKey, durationInt)
                             }
                             isLoading = false
                             result.onSuccess {
                                 scenes = it
                                 isError = false
-                                infoMsg = "Ssenari hazırlandı!"
+                                val totalCheck = it.sumOf { s -> s.durationSec }
+                                infoMsg = "Ssenari hazırlandı! (${it.size} səhnə, cəmi $totalCheck saniyə)"
                             }.onFailure {
                                 isError = true
                                 infoMsg = it.message ?: "Naməlum xəta baş verdi."
@@ -180,6 +207,7 @@ fun AppRoot(createTts: ((Boolean) -> Unit) -> TtsHelper) {
                     scene = scene,
                     width = w,
                     height = h,
+                    styleModifier = style.promptModifier,
                     ttsReady = ttsReady,
                     onSceneChange = { updated ->
                         scenes = scenes.toMutableList().also { it[index] = updated }
@@ -242,17 +270,21 @@ fun SceneCard(
     scene: Scene,
     width: Int,
     height: Int,
+    styleModifier: String,
     ttsReady: Boolean,
     onSceneChange: (Scene) -> Unit,
     onGenerateAudio: () -> Unit
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(12.dp)) {
-            Text("🎬 Səhnə ${index + 1}", style = MaterialTheme.typography.titleSmall)
+            Text(
+                "🎬 Səhnə ${index + 1}  •  ${scene.durationSec} san.",
+                style = MaterialTheme.typography.titleSmall
+            )
             Spacer(Modifier.height(8.dp))
 
-            val imageUrl = remember(scene.visualPrompt, width, height) {
-                ImageProvider.buildUrl(scene.visualPrompt, width, height, index * 42)
+            val imageUrl = remember(scene.visualPrompt, styleModifier, width, height) {
+                ImageProvider.buildUrl(scene.visualPrompt, styleModifier, width, height, index * 42)
             }
             AsyncImage(
                 model = imageUrl,
