@@ -59,7 +59,7 @@ enum class VideoStyle(val displayName: String, val promptModifier: String) {
     ),
     BW_SKETCH(
         "Qara-Ağ Eskiz",
-        "black and white line art, hand-drawn doodle sketch, ink drawing, comic sketch style, no color, simple clean linework, white background"
+        "black and white pencil sketch, monochrome ink drawing, hand-drawn doodle, comic book sketch art, NOT a photo, NOT photorealistic, illustration only, no color, rough linework, white paper background"
     );
 
     companion object {

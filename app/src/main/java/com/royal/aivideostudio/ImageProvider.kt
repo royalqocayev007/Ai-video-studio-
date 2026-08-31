@@ -13,7 +13,11 @@ import java.net.URLEncoder
 object ImageProvider {
     fun buildUrl(prompt: String, styleModifier: String, width: Int, height: Int, seed: Int): String {
         val basePrompt = prompt.ifBlank { "cinematic shot" }
-        val fullPrompt = if (styleModifier.isBlank()) basePrompt else "$basePrompt, $styleModifier"
+        // Üslub sözlərini prompt-un ƏVVƏLİNƏ qoyuruq — diffusion modelləri
+        // adətən başlanğıcdakı sözlərə daha çox "çəki" verir, ona görə
+        // güclü üslub dəyişiklikləri (məs. eskiz) sonda yazılanda tez-tez
+        // nəzərə alınmır.
+        val fullPrompt = if (styleModifier.isBlank()) basePrompt else "$styleModifier, $basePrompt"
         val encoded = URLEncoder.encode(fullPrompt, "UTF-8")
         return "https://image.pollinations.ai/prompt/$encoded?width=$width&height=$height&nologo=true&seed=$seed"
     }
