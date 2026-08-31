@@ -52,6 +52,14 @@ enum class VideoStyle(val displayName: String, val promptModifier: String) {
     MINIMALIST(
         "Minimalist",
         "minimalist flat design, simple shapes, clean background, vector, negative space"
+    ),
+    DIGITAL_ILLUSTRATION(
+        "Rəqəmsal İllüstrasiya",
+        "semi-realistic digital illustration, webtoon style, soft cel shading, clean linework, vibrant colors, detailed background"
+    ),
+    BW_SKETCH(
+        "Qara-Ağ Eskiz",
+        "black and white line art, hand-drawn doodle sketch, ink drawing, comic sketch style, no color, simple clean linework, white background"
     );
 
     companion object {
