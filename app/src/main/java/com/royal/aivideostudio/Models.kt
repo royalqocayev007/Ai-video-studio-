@@ -7,7 +7,8 @@ data class Scene(
     var visualPrompt: String,
     var durationSec: Int,
     var subtitleText: String,
-    var audioFilePath: String? = null
+    var audioFilePath: String? = null,
+    var imageSeed: Int = 0
 )
 
 /** Gemini-dən gələn xam JSON-un strukturu */
@@ -60,3 +61,20 @@ enum class VideoStyle(val displayName: String, val promptModifier: String) {
             entries.find { it.displayName == name } ?: CINEMATIC
     }
 }
+
+/**
+ * Tam bir layihənin "anlıq görüntüsü" (snapshot) — saxlanılıb sonra
+ * geri yüklənə bilsin deyə. Bütün parametrləri və səhnələri özündə
+ * daşıyır ki, layihəni yükləyəndə hər şey olduğu kimi geri gəlsin.
+ */
+data class Project(
+    val name: String,
+    val savedAt: Long,
+    val idea: String,
+    val durationSeconds: Int,
+    val styleName: String,
+    val aspect: String,
+    val language: String,
+    val scenes: List<Scene>,
+    val currentSceneIndex: Int
+)
