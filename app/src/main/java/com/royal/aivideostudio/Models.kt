@@ -71,6 +71,23 @@ enum class VideoStyle(val displayName: String, val promptModifier: String) {
 }
 
 /**
+ * Səsləndirmə mənbəyi seçimi. DEVICE — telefonun daxili, pulsuz
+ * mühərriki (indiyə qədər istifadə etdiyimiz). ELEVENLABS — bulud
+ * əsaslı, daha keyfiyyətli, pullu servis; ayrıca API açarı tələb edir.
+ */
+enum class VoiceProvider(val displayName: String) {
+    DEVICE("Telefonun öz səsi (pulsuz)"),
+    ELEVENLABS("ElevenLabs (keyfiyyətli, pullu)");
+
+    companion object {
+        val displayNames = entries.map { it.displayName }
+
+        fun fromDisplayName(name: String): VoiceProvider =
+            entries.find { it.displayName == name } ?: DEVICE
+    }
+}
+
+/**
  * Tam bir layihənin "anlıq görüntüsü" (snapshot) — saxlanılıb sonra
  * geri yüklənə bilsin deyə. Bütün parametrləri və səhnələri özündə
  * daşıyır ki, layihəni yükləyəndə hər şey olduğu kimi geri gəlsin.

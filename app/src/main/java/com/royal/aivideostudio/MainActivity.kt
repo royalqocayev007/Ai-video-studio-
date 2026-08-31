@@ -126,6 +126,13 @@ fun AppRoot(createTts: ((Boolean) -> Unit) -> TtsHelper) {
     var aspect by remember { mutableStateOf("16:9 (YouTube)") }
     var durationText by remember { mutableStateOf("30") }
     var style by remember { mutableStateOf(VideoStyle.CINEMATIC) }
+    var voiceProvider by remember {
+        mutableStateOf(VoiceProvider.fromDisplayName(prefs.getString("voice_provider", "") ?: ""))
+    }
+    var elevenLabsApiKey by remember { mutableStateOf(prefs.getString("elevenlabs_api_key", "") ?: "") }
+    var elevenLabsVoiceId by remember {
+        mutableStateOf(prefs.getString("elevenlabs_voice_id", "21m00Tcm4TlvDq8ikWAM") ?: "21m00Tcm4TlvDq8ikWAM")
+    }
     var idea by remember { mutableStateOf(prefs.getString("last_idea", "") ?: "") }
     var ideaHistory by remember { mutableStateOf(loadIdeaHistory(prefs)) }
     var isLoading by remember { mutableStateOf(false) }
@@ -251,6 +258,47 @@ fun AppRoot(createTts: ((Boolean) -> Unit) -> TtsHelper) {
             VideoStyle.displayNames,
             style.displayName
         ) { selected -> style = VideoStyle.fromDisplayName(selected) }
+
+        Spacer(Modifier.height(8.dp))
+        DropdownSelector(
+            "🎙️ Səs Provayderi",
+            VoiceProvider.displayNames,
+            voiceProvider.displayName
+        ) { selected ->
+            voiceProvider = VoiceProvider.fromDisplayName(selected)
+            prefs.edit().putString("voice_provider", voiceProvider.displayName).apply()
+        }
+
+        if (voiceProvider == VoiceProvider.ELEVENLABS) {
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(
+                value = elevenLabsApiKey,
+                onValueChange = { newValue ->
+                    elevenLabsApiKey = newValue
+                    prefs.edit().putString("elevenlabs_api_key", newValue).apply()
+                },
+                label = { Text("🔑 ElevenLabs API Key") },
+                singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(
+                value = elevenLabsVoiceId,
+                onValueChange = { newValue ->
+                    elevenLabsVoiceId = newValue
+                    prefs.edit().putString("elevenlabs_voice_id", newValue).apply()
+                },
+                label = { Text("Voice ID") },
+                placeholder = { Text("Məsələn: 21m00Tcm4TlvDq8ikWAM") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Text(
+                "Voice ID-ni elevenlabs.io saytında \"Voice Library\" bölməsindən tapa bilərsən.",
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
 
         Spacer(Modifier.height(16.dp))
         HorizontalDivider()
@@ -434,7 +482,7 @@ fun AppRoot(createTts: ((Boolean) -> Unit) -> TtsHelper) {
                             height = h,
                             styleModifier = style.promptModifier,
                             isLastScene = index == scenes.lastIndex,
-                            ttsReady = ttsReady,
+                            ttsReady = if (voiceProvider == VoiceProvider.ELEVENLABS) true else ttsReady,
                             onSceneChange = { updated ->
                                 scenes = scenes.toMutableList().also { it[index] = updated }
                             },
@@ -446,6 +494,33 @@ fun AppRoot(createTts: ((Boolean) -> Unit) -> TtsHelper) {
                                 currentSceneIndex += 1
                             },
                             onGenerateAudio = {
+                                if (voiceProvider == VoiceProvider.ELEVENLABS) {
+                                    if (elevenLabsApiKey.isBlank() || elevenLabsVoiceId.isBlank()) {
+                                        infoMsg = "ElevenLabs API açarı və Voice ID daxil edilməlidir."
+                                        isError = true
+                                        return@ActiveSceneCard
+                                    }
+                                    val outFile = File(context.filesDir, "scene_${index + 1}.mp3")
+                                    scope.launch {
+                                        val result = withContext(Dispatchers.IO) {
+                                            ElevenLabsApi.synthesizeToFile(
+                                                scene.narrationText,
+                                                elevenLabsApiKey,
+                                                elevenLabsVoiceId,
+                                                outFile
+                                            )
+                                        }
+                                        result.onSuccess {
+                                            val updated = scene.copy(audioFilePath = outFile.absolutePath)
+                                            scenes = scenes.toMutableList().also { it[index] = updated }
+                                        }.onFailure {
+                                            infoMsg = it.message ?: "ElevenLabs səs yaradıla bilmədi."
+                                            isError = true
+                                        }
+                                    }
+                                    return@ActiveSceneCard
+                                }
+
                                 val helper = ttsHelper
                                 if (helper == null) {
                                     infoMsg = "Səs mühərriki hələ hazır deyil."
