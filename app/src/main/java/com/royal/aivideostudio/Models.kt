@@ -88,6 +88,25 @@ enum class VoiceProvider(val displayName: String) {
 }
 
 /**
+ * Fon musiqisi mənbəyi. Hələlik yalnız OWN_UPLOAD tam işləkdir —
+ * STOCK və SUNO növbəti mərhələdə (xüsusi API araşdırması lazımdır)
+ * tam əlavə olunacaq, indi seçim kimi görünür amma "tezliklə" yazır.
+ */
+enum class MusicSource(val displayName: String) {
+    NONE("Musiqi yoxdur"),
+    OWN_UPLOAD("Öz musiqim (yüklə)"),
+    STOCK("Stok musiqi (Pixabay)"),
+    SUNO("Suno ilə yarat");
+
+    companion object {
+        val displayNames = entries.map { it.displayName }
+
+        fun fromDisplayName(name: String): MusicSource =
+            entries.find { it.displayName == name } ?: NONE
+    }
+}
+
+/**
  * Tam bir layihənin "anlıq görüntüsü" (snapshot) — saxlanılıb sonra
  * geri yüklənə bilsin deyə. Bütün parametrləri və səhnələri özündə
  * daşıyır ki, layihəni yükləyəndə hər şey olduğu kimi geri gəlsin.
@@ -101,5 +120,6 @@ data class Project(
     val aspect: String,
     val language: String,
     val scenes: List<Scene>,
-    val currentSceneIndex: Int
+    val currentSceneIndex: Int,
+    val musicFilePath: String? = null
 )

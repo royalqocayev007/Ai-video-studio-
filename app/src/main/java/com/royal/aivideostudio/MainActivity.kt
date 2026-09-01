@@ -1,8 +1,11 @@
 package com.royal.aivideostudio
 
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -145,6 +148,110 @@ fun AppRoot(createTts: ((Boolean) -> Unit) -> TtsHelper) {
     var showProjectList by remember { mutableStateOf(false) }
     var saveNameInput by remember { mutableStateOf("") }
 
+    // ---------- Fon musiqisi ----------
+    var musicSource by remember { mutableStateOf(MusicSource.NONE) }
+    var musicFilePath by remember { mutableStateOf<String?>(null) }
+    val pickMusicLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            try {
+                val outFile = File(context.filesDir, "background_music.mp3")
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    outFile.outputStream().use { output -> input.copyTo(output) }
+                }
+                musicFilePath = outFile.absolutePath
+                infoMsg = "Fon musiqisi yükləndi: ${outFile.name}"
+                isError = false
+            } catch (e: Exception) {
+                infoMsg = "Musiqi faylı yüklənə bilmədi: ${e.message}"
+                isError = true
+            }
+        }
+    }
+
+    // ---------- Öz səsini yazmaq (mikrofon) ----------
+    // Yalnız bir anda bir səhnə yazıla bilər (aktiv səhnə), ona görə tək
+    // MediaRecorder kifayətdir — hər səhnə üçün ayrıca saxlamaq lazım deyil.
+    var isRecording by remember { mutableStateOf(false) }
+    var mediaRecorder by remember { mutableStateOf<android.media.MediaRecorder?>(null) }
+    var recordingTargetFile by remember { mutableStateOf<File?>(null) }
+    var recordingTargetIndex by remember { mutableStateOf(-1) }
+    var pendingRecordFile by remember { mutableStateOf<File?>(null) }
+
+    val recordPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        val file = pendingRecordFile
+        pendingRecordFile = null
+        if (granted && file != null) {
+            try {
+                val recorder = android.media.MediaRecorder()
+                recorder.setAudioSource(android.media.MediaRecorder.AudioSource.MIC)
+                recorder.setOutputFormat(android.media.MediaRecorder.OutputFormat.MPEG_4)
+                recorder.setAudioEncoder(android.media.MediaRecorder.AudioEncoder.AAC)
+                recorder.setOutputFile(file.absolutePath)
+                recorder.prepare()
+                recorder.start()
+                mediaRecorder = recorder
+                recordingTargetFile = file
+                isRecording = true
+            } catch (e: Exception) {
+                infoMsg = "Səs yazıla bilmədi: ${e.message}"
+                isError = true
+            }
+        } else if (!granted) {
+            infoMsg = "Səs yazmaq üçün mikrofon icazəsi lazımdır."
+            isError = true
+        }
+    }
+
+    fun toggleRecording(index: Int) {
+        if (isRecording) {
+            try {
+                mediaRecorder?.stop()
+            } catch (e: Exception) {
+                // Qısa yazılar bəzən stop()-da xəta verir, faylı yenə də saxlamağa çalışırıq.
+            }
+            mediaRecorder?.release()
+            mediaRecorder = null
+            isRecording = false
+            val file = recordingTargetFile
+            if (file != null) {
+                val updated = scenes[index].copy(audioFilePath = file.absolutePath)
+                scenes = scenes.toMutableList().also { it[index] = updated }
+            }
+            recordingTargetFile = null
+            recordingTargetIndex = -1
+        } else {
+            val file = File(context.filesDir, "scene_${index + 1}_recorded.m4a")
+            recordingTargetIndex = index
+            val hasPermission = androidx.core.content.ContextCompat.checkSelfPermission(
+                context, android.Manifest.permission.RECORD_AUDIO
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            if (hasPermission) {
+                try {
+                    val recorder = android.media.MediaRecorder()
+                    recorder.setAudioSource(android.media.MediaRecorder.AudioSource.MIC)
+                    recorder.setOutputFormat(android.media.MediaRecorder.OutputFormat.MPEG_4)
+                    recorder.setAudioEncoder(android.media.MediaRecorder.AudioEncoder.AAC)
+                    recorder.setOutputFile(file.absolutePath)
+                    recorder.prepare()
+                    recorder.start()
+                    mediaRecorder = recorder
+                    recordingTargetFile = file
+                    isRecording = true
+                } catch (e: Exception) {
+                    infoMsg = "Səs yazıla bilmədi: ${e.message}"
+                    isError = true
+                }
+            } else {
+                pendingRecordFile = file
+                recordPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+            }
+        }
+    }
+
     var ttsReady by remember { mutableStateOf(false) }
     var ttsHelper by remember { mutableStateOf<TtsHelper?>(null) }
 
@@ -190,6 +297,8 @@ fun AppRoot(createTts: ((Boolean) -> Unit) -> TtsHelper) {
                                     language = project.language
                                     scenes = project.scenes
                                     currentSceneIndex = project.currentSceneIndex
+                                    musicFilePath = project.musicFilePath
+                                    musicSource = if (project.musicFilePath != null) MusicSource.OWN_UPLOAD else MusicSource.NONE
                                     isError = false
                                     infoMsg = "\"${project.name}\" layihəsi yükləndi."
                                     showProjectList = false
@@ -298,6 +407,84 @@ fun AppRoot(createTts: ((Boolean) -> Unit) -> TtsHelper) {
                 "Voice ID-ni elevenlabs.io saytında \"Voice Library\" bölməsindən tapa bilərsən.",
                 style = MaterialTheme.typography.bodySmall
             )
+        }
+
+        Spacer(Modifier.height(16.dp))
+        Text("🎵 Fon Musiqisi", style = MaterialTheme.typography.titleMedium)
+        Spacer(Modifier.height(8.dp))
+        DropdownSelector(
+            "Musiqi Mənbəyi",
+            MusicSource.displayNames,
+            musicSource.displayName
+        ) { selected -> musicSource = MusicSource.fromDisplayName(selected) }
+
+        when (musicSource) {
+            MusicSource.OWN_UPLOAD -> {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "Telefonundakı istənilən musiqi faylını seç.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            MusicSource.STOCK -> {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "Pixabay saytında pulsuz musiqi seç, telefonuna endir, sonra aşağıdakı " +
+                        "\"Musiqi Faylı Seç\" düyməsi ilə tətbiqə gətir.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = {
+                        val browserIntent = android.content.Intent(
+                            android.content.Intent.ACTION_VIEW,
+                            Uri.parse("https://pixabay.com/music/")
+                        )
+                        context.startActivity(browserIntent)
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("🌐 Pixabay Musiqi Səhifəsini Aç")
+                }
+            }
+            MusicSource.SUNO -> {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "Suno-nun rəsmi API-si yoxdur, ona görə musiqini saytda özün yaradıb " +
+                        "endirməlisən, sonra aşağıdakı \"Musiqi Faylı Seç\" düyməsi ilə tətbiqə gətir.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = {
+                        val browserIntent = android.content.Intent(
+                            android.content.Intent.ACTION_VIEW,
+                            Uri.parse("https://suno.com")
+                        )
+                        context.startActivity(browserIntent)
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("🌐 Suno-nu Aç")
+                }
+            }
+            MusicSource.NONE -> {}
+        }
+
+        if (musicSource != MusicSource.NONE) {
+            Spacer(Modifier.height(8.dp))
+            Button(
+                onClick = { pickMusicLauncher.launch("audio/*") },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("📁 Musiqi Faylı Seç")
+            }
+            musicFilePath?.let { path ->
+                Spacer(Modifier.height(4.dp))
+                Text("✅ Seçildi: ${File(path).name}", style = MaterialTheme.typography.bodySmall)
+                Spacer(Modifier.height(4.dp))
+                PlayButton(path, "▶️ Musiqini Dinlə")
+            }
         }
 
         Spacer(Modifier.height(16.dp))
@@ -431,7 +618,8 @@ fun AppRoot(createTts: ((Boolean) -> Unit) -> TtsHelper) {
                                     aspect = aspect,
                                     language = language,
                                     scenes = scenes,
-                                    currentSceneIndex = currentSceneIndex
+                                    currentSceneIndex = currentSceneIndex,
+                                    musicFilePath = musicFilePath
                                 )
                                 projects = upsertProject(prefs, project)
                                 isError = false
@@ -483,6 +671,8 @@ fun AppRoot(createTts: ((Boolean) -> Unit) -> TtsHelper) {
                             styleModifier = style.promptModifier,
                             isLastScene = index == scenes.lastIndex,
                             ttsReady = if (voiceProvider == VoiceProvider.ELEVENLABS) true else ttsReady,
+                            isRecording = isRecording && recordingTargetIndex == index,
+                            onToggleRecording = { toggleRecording(index) },
                             onSceneChange = { updated ->
                                 scenes = scenes.toMutableList().also { it[index] = updated }
                             },
@@ -635,6 +825,8 @@ fun ActiveSceneCard(
     styleModifier: String,
     isLastScene: Boolean,
     ttsReady: Boolean,
+    isRecording: Boolean,
+    onToggleRecording: () -> Unit,
     onSceneChange: (Scene) -> Unit,
     onRegenerateImage: () -> Unit,
     onConfirmNext: () -> Unit,
@@ -697,15 +889,30 @@ fun ActiveSceneCard(
             Spacer(Modifier.height(8.dp))
             Button(
                 onClick = onGenerateAudio,
-                enabled = ttsReady,
+                enabled = ttsReady && !isRecording,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text("🎙️ Səsi Yarat #${index + 1}")
             }
 
-            scene.audioFilePath?.let {
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = onToggleRecording,
+                modifier = Modifier.fillMaxWidth(),
+                colors = if (isRecording) {
+                    ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                } else {
+                    ButtonDefaults.outlinedButtonColors()
+                }
+            ) {
+                Text(if (isRecording) "⏺ Yazılır... (Dayandırmaq üçün bas)" else "🎤 Özün Səslən")
+            }
+
+            scene.audioFilePath?.let { path ->
+                Spacer(Modifier.height(8.dp))
+                Text("✅ Yaradıldı: ${File(path).name}", style = MaterialTheme.typography.bodySmall)
                 Spacer(Modifier.height(4.dp))
-                Text("✅ Yaradıldı: ${File(it).name}", style = MaterialTheme.typography.bodySmall)
+                PlayButton(path, "▶️ Səsi Dinlə")
             }
 
             Spacer(Modifier.height(12.dp))
@@ -716,6 +923,35 @@ fun ActiveSceneCard(
                 Text(if (isLastScene) "✅ Təsdiqlə, Bitir" else "✅ Təsdiqlə, Növbəti Səhnə →")
             }
         }
+    }
+}
+
+/**
+ * İstənilən səs faylını (TTS, ElevenLabs, öz səsimiz, fon musiqisi)
+ * dinləmək üçün universal düymə. Basanda çalır, yenidən basanda saxlayır.
+ */
+@Composable
+fun PlayButton(path: String, label: String) {
+    val playerHelper = remember { AudioPlayerHelper() }
+    var isPlaying by remember(path) { mutableStateOf(false) }
+
+    DisposableEffect(Unit) {
+        onDispose { playerHelper.stop() }
+    }
+
+    OutlinedButton(
+        onClick = {
+            if (isPlaying) {
+                playerHelper.stop()
+                isPlaying = false
+            } else {
+                isPlaying = true
+                playerHelper.play(path) { isPlaying = false }
+            }
+        },
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Text(if (isPlaying) "⏹ Dayandır" else label)
     }
 }
 
