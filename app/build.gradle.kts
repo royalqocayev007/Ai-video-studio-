@@ -60,5 +60,9 @@ dependencies {
     // Async əməliyyatlar
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
+    // Video montajı (FFmpegKit-in icma tərəfindən davam etdirilən versiyası —
+    // orijinal com.arthenica versiyası 2025-də dayandırılıb)
+    implementation("io.github.maitrungduc1410:ffmpeg-kit-full:8.1.2")
+
     debugImplementation("androidx.compose.ui:ui-tooling")
 }

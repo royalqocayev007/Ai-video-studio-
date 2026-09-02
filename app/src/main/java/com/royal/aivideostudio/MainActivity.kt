@@ -148,6 +148,10 @@ fun AppRoot(createTts: ((Boolean) -> Unit) -> TtsHelper) {
     var showProjectList by remember { mutableStateOf(false) }
     var saveNameInput by remember { mutableStateOf("") }
 
+    // ---------- Video render (Mərhələ 3) ----------
+    var isRendering by remember { mutableStateOf(false) }
+    var renderProgress by remember { mutableStateOf<String?>(null) }
+
     // ---------- Fon musiqisi ----------
     var musicSource by remember { mutableStateOf(MusicSource.NONE) }
     var musicFilePath by remember { mutableStateOf<String?>(null) }
@@ -764,6 +768,39 @@ fun AppRoot(createTts: ((Boolean) -> Unit) -> TtsHelper) {
                 ) {
                     Text("📄 SRT Subtitr Faylını Yarat")
                 }
+
+                Spacer(Modifier.height(8.dp))
+                Button(
+                    onClick = {
+                        isRendering = true
+                        renderProgress = "Başlanır..."
+                        scope.launch {
+                            val (w, h) = if (aspect.startsWith("16:9")) 1280 to 720 else 720 to 1280
+                            val result = withContext(Dispatchers.IO) {
+                                VideoRenderer.render(context, scenes, style.promptModifier, w, h) { msg ->
+                                    renderProgress = msg
+                                }
+                            }
+                            isRendering = false
+                            renderProgress = null
+                            result.onSuccess { uri ->
+                                isError = false
+                                infoMsg = "🎉 Video hazırdır! Downloads qovluğunda tap: $uri"
+                            }.onFailure {
+                                isError = true
+                                infoMsg = it.message ?: "Video yaradıla bilmədi."
+                            }
+                        }
+                    },
+                    enabled = !isRendering,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(if (isRendering) "Video hazırlanır..." else "🎬 Videonu Yarat (MP4)")
+                }
+                renderProgress?.let {
+                    Spacer(Modifier.height(4.dp))
+                    Text(it, style = MaterialTheme.typography.bodySmall)
+                }
             }
         }
 
@@ -807,6 +844,10 @@ fun CompletedSceneRow(
                     overflow = TextOverflow.Ellipsis,
                     style = MaterialTheme.typography.bodySmall
                 )
+                scene.audioFilePath?.let { path ->
+                    Spacer(Modifier.height(4.dp))
+                    PlayButton(path, "▶️ Dinlə")
+                }
             }
             TextButton(onClick = onEdit) {
                 Text("Düzəlt")
