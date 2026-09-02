@@ -31,7 +31,14 @@ import java.io.IOException
  */
 object VideoRenderer {
 
-    private val httpClient = OkHttpClient()
+    // Pollinations bəzən yeni şəkil yaratmaq üçün 10-30+ saniyə vaxt apara
+    // bilir (xüsusən əvvəllər önizləmədə göstərilməmiş, təzə sorğu olanda),
+    // ona görə defolt (10 san.) gözləmə vaxtı bura kifayət etmir.
+    private val httpClient = OkHttpClient.Builder()
+        .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+        .readTimeout(90, java.util.concurrent.TimeUnit.SECONDS)
+        .writeTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+        .build()
 
     fun render(
         context: Context,
