@@ -56,11 +56,11 @@ object VideoRenderer {
             val renderWidth: Int
             val renderHeight: Int
             if (widthPx >= heightPx) {
-                renderWidth = 848
-                renderHeight = 480
+                renderWidth = 640
+                renderHeight = 360
             } else {
-                renderWidth = 480
-                renderHeight = 848
+                renderWidth = 360
+                renderHeight = 640
             }
 
             val workDir = File(context.cacheDir, "render_${System.currentTimeMillis()}")
@@ -89,7 +89,7 @@ object VideoRenderer {
                 val clipFile = File(workDir, "clip_$index.mp4")
                 val cmd = "-y -loop 1 -i \"${imageFile.absolutePath}\" -i \"$audioPath\" " +
                     "-c:v libkvazaar -kvazaar-params preset=ultrafast " +
-                    "-t $durationSec -vf \"scale=$renderWidth:$renderHeight,fps=10\" " +
+                    "-t $durationSec -vf \"scale=$renderWidth:$renderHeight,fps=8\" " +
                     "-pix_fmt yuv420p -c:a aac -b:a 128k \"${clipFile.absolutePath}\""
 
                 onProgress("Səhnə ${index + 1}/${scenes.size} kodlaşdırılır (bir az vaxt apara bilər)...")
@@ -108,6 +108,11 @@ object VideoRenderer {
                 imageFile.delete()
                 clipFiles.add(clipFile)
                 System.gc()
+                // Növbəti səhnəyə keçməzdən əvvəl kiçik fasilə — kitabxananın
+                // daxili (native) yaddaşının tam boşalmasına vaxt verir.
+                // Bəzi telefonlarda ard-arda çox tez FFmpeg çağırışı sabitliyi
+                // pozur, bu fasilə onun qarşısını almağa kömək edir.
+                Thread.sleep(700)
             }
 
             onProgress("Bütün səhnələr birləşdirilir...")
