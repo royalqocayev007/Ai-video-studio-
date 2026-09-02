@@ -56,11 +56,11 @@ object VideoRenderer {
             val renderWidth: Int
             val renderHeight: Int
             if (widthPx >= heightPx) {
-                renderWidth = 854
+                renderWidth = 848
                 renderHeight = 480
             } else {
                 renderWidth = 480
-                renderHeight = 854
+                renderHeight = 848
             }
 
             val workDir = File(context.cacheDir, "render_${System.currentTimeMillis()}")
