@@ -88,8 +88,11 @@ object VideoRenderer {
                 onProgress("Səhnə ${index + 1}/${scenes.size} kodlaşdırılır (bir az vaxt apara bilər)...")
                 val session = FFmpegKit.execute(cmd)
                 if (!ReturnCode.isSuccess(session.returnCode)) {
+                    val logDetail = session.allLogsAsString?.takeLast(800)
+                        ?: session.failStackTrace
+                        ?: "naməlum"
                     return Result.failure(
-                        IOException("Səhnə ${index + 1} render xətası (kod ${session.returnCode}): ${session.failStackTrace ?: "naməlum"}")
+                        IOException("Səhnə ${index + 1} render xətası (kod ${session.returnCode}): $logDetail")
                     )
                 }
 
@@ -109,8 +112,11 @@ object VideoRenderer {
             val concatCmd = "-y -f concat -safe 0 -i \"${concatListFile.absolutePath}\" -c copy \"${finalFile.absolutePath}\""
             val concatSession = FFmpegKit.execute(concatCmd)
             if (!ReturnCode.isSuccess(concatSession.returnCode)) {
+                val logDetail = concatSession.allLogsAsString?.takeLast(800)
+                    ?: concatSession.failStackTrace
+                    ?: "naməlum"
                 return Result.failure(
-                    IOException("Birləşdirmə xətası (kod ${concatSession.returnCode}): ${concatSession.failStackTrace ?: "naməlum"}")
+                    IOException("Birləşdirmə xətası (kod ${concatSession.returnCode}): $logDetail")
                 )
             }
 
