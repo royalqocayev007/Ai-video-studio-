@@ -19,21 +19,17 @@ import java.io.IOException
  * hamısını bir MP4-də ard-arda düzür. Hələ fon musiqisi və altyazı yoxdur
  * — bunlar sonrakı addımlarda əlavə olunacaq.
  *
- * Necə işləyir (addım-addım):
- * 1. Hər səhnənin şəklini (Pollinations-dan) telefonun öz yaddaşına endiririk
- *    — FFmpeg uzaq linklərlə deyil, yerli fayllarla işləməlidir.
- * 2. Hər səhnənin səs faylının HƏQİQİ uzunluğunu ölçürük (TTS bəzən
- *    planlaşdırılan saniyədən bir az fərqli danışa bilər) — şəkil bu
- *    dəqiq müddət qədər ekranda qalacaq ki, səs kəsilməsin.
- * 3. Hər səhnə üçün ayrıca kiçik bir video "parçası" yaradırıq.
- * 4. Bütün parçaları bir-birinin ardınca birləşdirib tək fayl edirik.
- * 5. Nəticəni telefonun "Downloads" qovluğuna yazırıq ki, tapmaq asan olsun.
+ * DİQQƏT (versiya 2): əvvəlki versiya hər səhnə üçün AYRI-AYRI FFmpeg
+ * çağırışı edirdi (N dəfə). Bu, bəzi telefonlarda 2-ci səhnədə tətbiqin
+ * tam bağlanmasına səbəb oldu — kitabxananın öz daxili (native) hissəsi
+ * ard-arda tez-tez çağırılanda sabitliyini itirir. Bunun həlli: bütün
+ * səhnələri TƏK BİR FFmpeg əmri ilə, bir dəfəyə emal etmək (bir
+ * "filter_complex" — süzgəc zənciri — vasitəsilə).
  */
 object VideoRenderer {
 
     // Pollinations bəzən yeni şəkil yaratmaq üçün 10-30+ saniyə vaxt apara
-    // bilir (xüsusən əvvəllər önizləmədə göstərilməmiş, təzə sorğu olanda),
-    // ona görə defolt (10 san.) gözləmə vaxtı bura kifayət etmir.
+    // bilir, ona görə defolt (10 san.) gözləmə vaxtı bura kifayət etmir.
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
         .readTimeout(90, java.util.concurrent.TimeUnit.SECONDS)
@@ -49,10 +45,6 @@ object VideoRenderer {
         onProgress: (String) -> Unit
     ): Result<Uri> {
         return try {
-            // Yaddaş (RAM) təzyiqini azaltmaq üçün render zamanı daha KİÇİK
-            // ölçüdən istifadə edirik (ekranda göstərilən önizləmə fərqli ola
-            // bilər, problem deyil — son videonun keyfiyyəti yenə də yaxşıdır,
-            // sadəcə zəif telefonlarda "yaddaş bitdi" qəzasının qarşısını alır).
             val renderWidth: Int
             val renderHeight: Int
             if (widthPx >= heightPx) {
@@ -66,10 +58,12 @@ object VideoRenderer {
             val workDir = File(context.cacheDir, "render_${System.currentTimeMillis()}")
             workDir.mkdirs()
 
-            val clipFiles = mutableListOf<File>()
+            val n = scenes.size
+            val imageFiles = mutableListOf<File>()
+            val audioPaths = mutableListOf<String>()
 
             scenes.forEachIndexed { index, scene ->
-                onProgress("Səhnə ${index + 1}/${scenes.size} hazırlanır...")
+                onProgress("Səhnə ${index + 1}/$n hazırlanır...")
 
                 val audioPath = scene.audioFilePath
                     ?: return Result.failure(
@@ -84,65 +78,65 @@ object VideoRenderer {
                     return Result.failure(IOException("Səhnə ${index + 1} üçün şəkil düzgün endirilmədi."))
                 }
 
-                val durationSec = (getAudioDurationMs(audioPath) / 1000.0).coerceAtLeast(1.0)
-
-                val clipFile = File(workDir, "clip_$index.mp4")
-                val cmd = "-y -loop 1 -i \"${imageFile.absolutePath}\" -i \"$audioPath\" " +
-                    "-c:v libkvazaar -kvazaar-params preset=ultrafast " +
-                    "-t $durationSec -vf \"scale=$renderWidth:$renderHeight,fps=8\" " +
-                    "-pix_fmt yuv420p -c:a aac -b:a 128k \"${clipFile.absolutePath}\""
-
-                onProgress("Səhnə ${index + 1}/${scenes.size} kodlaşdırılır (bir az vaxt apara bilər)...")
-                val session = FFmpegKit.execute(cmd)
-                if (!ReturnCode.isSuccess(session.returnCode)) {
-                    val logDetail = session.allLogsAsString?.takeLast(800)
-                        ?: session.failStackTrace
-                        ?: "naməlum"
-                    return Result.failure(
-                        IOException("Səhnə ${index + 1} render xətası (kod ${session.returnCode}): $logDetail")
-                    )
-                }
-
-                // Şəkli dərhal silirik ki, boşuna yer/yaddaş tutmasın —
-                // növbəti səhnəyə keçməzdən əvvəl təmizlik.
-                imageFile.delete()
-                clipFiles.add(clipFile)
-                System.gc()
-                // Növbəti səhnəyə keçməzdən əvvəl kiçik fasilə — kitabxananın
-                // daxili (native) yaddaşının tam boşalmasına vaxt verir.
-                // Bəzi telefonlarda ard-arda çox tez FFmpeg çağırışı sabitliyi
-                // pozur, bu fasilə onun qarşısını almağa kömək edir.
-                Thread.sleep(700)
+                imageFiles.add(imageFile)
+                audioPaths.add(audioPath)
             }
 
-            onProgress("Bütün səhnələr birləşdirilir...")
+            onProgress("Video tək mərhələdə hazırlanır (bir neçə dəqiqə çəkə bilər)...")
 
-            val concatListFile = File(workDir, "concat_list.txt")
-            concatListFile.writeText(clipFiles.joinToString("\n") { "file '${it.absolutePath}'" })
+            // Hər şəklin ekranda nə qədər qalacağını onun səsinin HƏQİQİ
+            // uzunluğuna görə təyin edirik.
+            val durations = audioPaths.map { (getAudioDurationMs(it) / 1000.0).coerceAtLeast(1.0) }
+
+            val inputArgs = StringBuilder()
+            imageFiles.forEachIndexed { i, imgFile ->
+                inputArgs.append("-loop 1 -t ${durations[i]} -i \"${imgFile.absolutePath}\" ")
+            }
+            audioPaths.forEach { path ->
+                inputArgs.append("-i \"$path\" ")
+            }
+
+            val filterBuilder = StringBuilder()
+            for (i in 0 until n) {
+                filterBuilder.append(
+                    "[$i:v]scale=$renderWidth:$renderHeight,fps=8,setsar=1,format=yuv420p[v$i];"
+                )
+            }
+            for (i in 0 until n) {
+                val audioInputIndex = n + i
+                filterBuilder.append(
+                    "[$audioInputIndex:a]aformat=sample_rates=44100:channel_layouts=stereo[a$i];"
+                )
+            }
+            val videoLabels = (0 until n).joinToString("") { "[v$it]" }
+            val audioLabels = (0 until n).joinToString("") { "[a$it]" }
+            filterBuilder.append("${videoLabels}concat=n=$n:v=1:a=0[vout];")
+            filterBuilder.append("${audioLabels}concat=n=$n:v=0:a=1[aout]")
 
             val finalFile = File(workDir, "final_output.mp4")
-            val concatCmd = "-y -f concat -safe 0 -i \"${concatListFile.absolutePath}\" -c copy \"${finalFile.absolutePath}\""
-            val concatSession = FFmpegKit.execute(concatCmd)
-            if (!ReturnCode.isSuccess(concatSession.returnCode)) {
-                val logDetail = concatSession.allLogsAsString?.takeLast(800)
-                    ?: concatSession.failStackTrace
+            val cmd = "-y $inputArgs" +
+                "-filter_complex \"$filterBuilder\" " +
+                "-map \"[vout]\" -map \"[aout]\" " +
+                "-c:v libkvazaar -kvazaar-params preset=ultrafast " +
+                "-pix_fmt yuv420p -c:a aac -b:a 128k \"${finalFile.absolutePath}\""
+
+            val session = FFmpegKit.execute(cmd)
+            if (!ReturnCode.isSuccess(session.returnCode)) {
+                val logDetail = session.allLogsAsString?.takeLast(1000)
+                    ?: session.failStackTrace
                     ?: "naməlum"
                 return Result.failure(
-                    IOException("Birləşdirmə xətası (kod ${concatSession.returnCode}): $logDetail")
+                    IOException("Render xətası (kod ${session.returnCode}): $logDetail")
                 )
             }
 
             onProgress("Downloads qovluğuna yazılır...")
             val savedUri = saveToDownloads(context, finalFile)
 
-            // Müvəqqəti iş qovluğunu təmizləyirik (istifadə olunmuş yaddaşı boşaltmaq üçün)
             workDir.deleteRecursively()
 
             Result.success(savedUri)
         } catch (e: Throwable) {
-            // Throwable tuturuq (təkcə Exception yox) ki, "yaddaş bitdi"
-            // (OutOfMemoryError) kimi daha ciddi hallar da tətbiqi
-            // qəflətən bağlamasın, əvəzinə ekranda mesaj göstərilsin.
             Result.failure(IOException(e.message ?: e.javaClass.simpleName ?: "Naməlum xəta"))
         }
     }
