@@ -20,6 +20,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import com.google.gson.Gson
 import coil.compose.AsyncImage
 import kotlinx.coroutines.Dispatchers
@@ -151,6 +152,7 @@ fun AppRoot(createTts: ((Boolean) -> Unit) -> TtsHelper) {
     // ---------- Video render (Mərhələ 3) ----------
     var isRendering by remember { mutableStateOf(false) }
     var renderProgress by remember { mutableStateOf<String?>(null) }
+    var renderedVideoUri by remember { mutableStateOf<Uri?>(null) }
 
     // ---------- Fon musiqisi ----------
     var musicSource by remember { mutableStateOf(MusicSource.NONE) }
@@ -774,10 +776,11 @@ fun AppRoot(createTts: ((Boolean) -> Unit) -> TtsHelper) {
                     onClick = {
                         isRendering = true
                         renderProgress = "Başlanır..."
+                        renderedVideoUri = null
                         scope.launch {
                             val (w, h) = if (aspect.startsWith("16:9")) 1280 to 720 else 720 to 1280
                             val result = withContext(Dispatchers.IO) {
-                                VideoRenderer.render(context, scenes, style.promptModifier, w, h) { msg ->
+                                VideoRenderer.render(context, scenes, style.promptModifier, w, h, musicFilePath) { msg ->
                                     renderProgress = msg
                                 }
                             }
@@ -785,7 +788,8 @@ fun AppRoot(createTts: ((Boolean) -> Unit) -> TtsHelper) {
                             renderProgress = null
                             result.onSuccess { uri ->
                                 isError = false
-                                infoMsg = "🎉 Video hazırdır! Downloads qovluğunda tap: $uri"
+                                renderedVideoUri = uri
+                                infoMsg = "🎉 Video hazırdır! Downloads qovluğunda da tap: $uri"
                             }.onFailure {
                                 isError = true
                                 infoMsg = it.message ?: "Video yaradıla bilmədi."
@@ -800,6 +804,12 @@ fun AppRoot(createTts: ((Boolean) -> Unit) -> TtsHelper) {
                 renderProgress?.let {
                     Spacer(Modifier.height(4.dp))
                     Text(it, style = MaterialTheme.typography.bodySmall)
+                }
+                renderedVideoUri?.let { uri ->
+                    Spacer(Modifier.height(12.dp))
+                    Text("▶️ Video Önizləməsi", style = MaterialTheme.typography.labelLarge)
+                    Spacer(Modifier.height(4.dp))
+                    VideoPlayerView(uri)
                 }
             }
         }
@@ -994,6 +1004,31 @@ fun PlayButton(path: String, label: String) {
     ) {
         Text(if (isPlaying) "⏹ Dayandır" else label)
     }
+}
+
+/**
+ * Hazır videonu birbaşa tətbiqin içində göstərir — Downloads/Qalereyaya
+ * keçməyə ehtiyac qalmır. Android-in öz daxili VideoView-u istifadə
+ * olunur (əlavə kitabxana lazım deyil), ekrana toxunanda idarəetmə
+ * paneli (oynat/dayandır) görünür.
+ */
+@Composable
+fun VideoPlayerView(uri: Uri) {
+    AndroidView(
+        factory = { ctx ->
+            android.widget.VideoView(ctx).apply {
+                setVideoURI(uri)
+                val controller = android.widget.MediaController(ctx)
+                controller.setAnchorView(this)
+                setMediaController(controller)
+                setOnPreparedListener { it.isLooping = false }
+                start()
+            }
+        },
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(220.dp)
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
