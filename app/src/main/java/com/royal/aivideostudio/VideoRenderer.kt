@@ -42,6 +42,20 @@ object VideoRenderer {
         onProgress: (String) -> Unit
     ): Result<Uri> {
         return try {
+            // Yaddaş (RAM) təzyiqini azaltmaq üçün render zamanı daha KİÇİK
+            // ölçüdən istifadə edirik (ekranda göstərilən önizləmə fərqli ola
+            // bilər, problem deyil — son videonun keyfiyyəti yenə də yaxşıdır,
+            // sadəcə zəif telefonlarda "yaddaş bitdi" qəzasının qarşısını alır).
+            val renderWidth: Int
+            val renderHeight: Int
+            if (widthPx >= heightPx) {
+                renderWidth = 854
+                renderHeight = 480
+            } else {
+                renderWidth = 480
+                renderHeight = 854
+            }
+
             val workDir = File(context.cacheDir, "render_${System.currentTimeMillis()}")
             workDir.mkdirs()
 
@@ -56,23 +70,34 @@ object VideoRenderer {
                     )
 
                 val imageFile = File(workDir, "img_$index.jpg")
-                val imageUrl = ImageProvider.buildUrl(scene.visualPrompt, styleModifier, widthPx, heightPx, scene.imageSeed)
+                val imageUrl = ImageProvider.buildUrl(scene.visualPrompt, styleModifier, renderWidth, renderHeight, scene.imageSeed)
                 downloadFile(imageUrl, imageFile)
+
+                if (!imageFile.exists() || imageFile.length() == 0L) {
+                    return Result.failure(IOException("Səhnə ${index + 1} üçün şəkil düzgün endirilmədi."))
+                }
 
                 val durationSec = (getAudioDurationMs(audioPath) / 1000.0).coerceAtLeast(1.0)
 
                 val clipFile = File(workDir, "clip_$index.mp4")
                 val cmd = "-y -loop 1 -i \"${imageFile.absolutePath}\" -i \"$audioPath\" " +
-                    "-c:v libkvazaar -t $durationSec -vf \"scale=$widthPx:$heightPx,fps=15\" " +
+                    "-c:v libkvazaar -kvazaar-params preset=ultrafast " +
+                    "-t $durationSec -vf \"scale=$renderWidth:$renderHeight,fps=10\" " +
                     "-pix_fmt yuv420p -c:a aac -b:a 128k \"${clipFile.absolutePath}\""
 
+                onProgress("Səhnə ${index + 1}/${scenes.size} kodlaşdırılır (bir az vaxt apara bilər)...")
                 val session = FFmpegKit.execute(cmd)
                 if (!ReturnCode.isSuccess(session.returnCode)) {
                     return Result.failure(
                         IOException("Səhnə ${index + 1} render xətası (kod ${session.returnCode}): ${session.failStackTrace ?: "naməlum"}")
                     )
                 }
+
+                // Şəkli dərhal silirik ki, boşuna yer/yaddaş tutmasın —
+                // növbəti səhnəyə keçməzdən əvvəl təmizlik.
+                imageFile.delete()
                 clipFiles.add(clipFile)
+                System.gc()
             }
 
             onProgress("Bütün səhnələr birləşdirilir...")
@@ -90,9 +115,17 @@ object VideoRenderer {
             }
 
             onProgress("Downloads qovluğuna yazılır...")
-            Result.success(saveToDownloads(context, finalFile))
-        } catch (e: Exception) {
-            Result.failure(e)
+            val savedUri = saveToDownloads(context, finalFile)
+
+            // Müvəqqəti iş qovluğunu təmizləyirik (istifadə olunmuş yaddaşı boşaltmaq üçün)
+            workDir.deleteRecursively()
+
+            Result.success(savedUri)
+        } catch (e: Throwable) {
+            // Throwable tuturuq (təkcə Exception yox) ki, "yaddaş bitdi"
+            // (OutOfMemoryError) kimi daha ciddi hallar da tətbiqi
+            // qəflətən bağlamasın, əvəzinə ekranda mesaj göstərilsin.
+            Result.failure(IOException(e.message ?: e.javaClass.simpleName ?: "Naməlum xəta"))
         }
     }
 
